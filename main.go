@@ -113,7 +113,6 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 			return
 		}
 
-		fmt.Printf("have authed user '%s'\n", authedUser)
 		newSubID := uuid.New()
 
 		sh.Lock.Lock()
@@ -126,8 +125,7 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 
 		sh.Lock.Unlock()
 
-		fmt.Printf("Sub req! %s\n", file)
-		fmt.Println(sh.Pending[newSubID])
+		fmt.Printf("new sub: %v\n", sh.Pending[newSubID])
 
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, newSubID.String())
