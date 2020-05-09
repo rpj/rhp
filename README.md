@@ -11,7 +11,7 @@ Currently the only implemented functionality is proxying of pub/sub subscription
 The entirety of the aforementioned procedure can be perfomed on the CLI via `wscat` and `curl`:
 
 ```
-  wscat -c ws://HOST:PORT/ws/sub?`curl -v -H "Authorization: Basic B64_CRED" http://HOST:PORT/sub/CHANNEL`
+wscat -c ws://HOST:PORT/ws/sub?`curl -H "Authorization: Basic B64_CRED" http://HOST:PORT/sub/CHANNEL`
 ```
 
 where `HOST`, `PORT`, `B64_CRED` & `CHANNEL` should be replaced with appropriate values.
