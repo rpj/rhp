@@ -261,8 +261,6 @@ func loadPlugins(fromPath string) {
 
 			fmt.Printf("loaded %s\n", path)
 			loadedPlugins[path] = newPlugin.(func(interface{}) (interface{}, error))
-
-			_, err = loadedPlugins[path]("init")
 		}
 
 		return nil
