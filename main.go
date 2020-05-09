@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"plugin"
 	"strings"
 	"sync"
 
@@ -23,7 +24,10 @@ const defaultRedisPort = 6379
 const defaultListenHost = "localhost"
 const defaultListenPort = 56545
 const defaultUsersFile = "./users.json"
+const defaultPluginsPath = "./plugins"
+const pluginEntrySymbolName = "RhpPlugin"
 
+var loadedPlugins = map[string]func(interface{}) (interface{}, error){}
 var usersMap map[string]string = nil
 var redisDefaultClient *redis.Client = nil
 var redisOptions = redis.Options{
@@ -155,7 +159,17 @@ func readUntilClose(c *websocket.Conn) {
 
 func forwardAllOnto(subChan <-chan *redis.Message, c *websocket.Conn) {
 	for fwd := range subChan {
-		c.WriteJSON(fwd.Payload)
+		payload := interface{}(fwd.Payload)
+		var err error
+
+		for pluginName, pluginFunc := range loadedPlugins {
+			payload, err = pluginFunc(payload)
+			if err != nil {
+				log.Panic(pluginName)
+			}
+		}
+
+		c.WriteJSON(payload)
 	}
 }
 
@@ -230,11 +244,43 @@ func parseJSON(path string, intoObj interface{}) error {
 	return nil
 }
 
+func loadPlugins(fromPath string) {
+	err := filepath.Walk(filepath.ToSlash(fromPath), func(path string, info os.FileInfo, err error) error {
+		if filepath.Ext(path) == ".so" {
+			pluginLoad, err := plugin.Open(path)
+
+			if err != nil {
+				return err
+			}
+
+			newPlugin, err := pluginLoad.Lookup(pluginEntrySymbolName)
+
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("loaded %s\n", path)
+			loadedPlugins[path] = newPlugin.(func(interface{}) (interface{}, error))
+
+			_, err = loadedPlugins[path]("init")
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Panic(err.Error())
+	}
+
+	fmt.Printf("loaded %d plugins\n", len(loadedPlugins))
+}
+
 func main() {
 	listenPort := flag.Uint("p", defaultListenPort, "listen port")
 	listenHost := flag.String("H", defaultListenHost, "listen host")
 	redisPort := flag.Uint("P", defaultRedisPort, "redis port")
 	redisHost := flag.String("r", defaultRedisHost, "redis host")
+	pluginsPath := flag.String("a", defaultPluginsPath, "plugins path")
 
 	flag.Parse()
 
@@ -245,6 +291,8 @@ func main() {
 	if redisPort == nil || redisHost == nil || *redisPort < 0 || *redisPort > 65535 {
 		log.Panic("redis spec")
 	}
+
+	loadPlugins(*pluginsPath)
 
 	redisAuth := os.Getenv("REDIS_LOCAL_PWD")
 
