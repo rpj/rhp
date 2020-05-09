@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -10,8 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"encoding/json"
-    "encoding/base64"
 
 	"github.com/go-redis/redis/v7"
 	"github.com/google/uuid"
@@ -27,13 +27,13 @@ const defaultUsersFile = "./users.json"
 var usersMap map[string]string = nil
 var redisDefaultClient *redis.Client = nil
 var redisOptions = redis.Options{
-	DB:   0,
+	DB: 0,
 }
 
 type subscriber struct {
 	Channel string
 	Addr    string
-    User    string
+	User    string
 }
 
 type subscribeHandler struct {
@@ -65,35 +65,35 @@ var wsClientsLock = sync.Mutex{}
 
 func checkAuth(req *http.Request) (string, error) {
 	if authHeader, ok := req.Header["Authorization"]; ok {
-        if len(authHeader) > 1 {
-            log.Panic("too many headers!")
-        }
+		if len(authHeader) > 1 {
+			log.Panic("too many headers!")
+		}
 
-        authComps := strings.Split(authHeader[0], " ")
+		authComps := strings.Split(authHeader[0], " ")
 
-        if len(authComps) != 2 || authComps[0] != "Basic" {
-            return "", fmt.Errorf("bad authComps '%v'", authComps)
-        }
+		if len(authComps) != 2 || authComps[0] != "Basic" {
+			return "", fmt.Errorf("bad authComps '%v'", authComps)
+		}
 
-        decAuthBytes, err := base64.StdEncoding.DecodeString(authComps[1])
+		decAuthBytes, err := base64.StdEncoding.DecodeString(authComps[1])
 
-        if err != nil {
-            return "", err
-        }
+		if err != nil {
+			return "", err
+		}
 
-        decComps := strings.Split(string(decAuthBytes), ":")
+		decComps := strings.Split(string(decAuthBytes), ":")
 
-        if len(decComps) != 2 {
-            return "", fmt.Errorf("bad decComps")
-        }
+		if len(decComps) != 2 {
+			return "", fmt.Errorf("bad decComps")
+		}
 
-        if storedPwd, okUser := usersMap[decComps[0]]; okUser {
-            if storedPwd == decComps[1] {
-                return decComps[0], nil
-            } else {
-                return "", fmt.Errorf("bad pwd")
-            }
-        }
+		if storedPwd, okUser := usersMap[decComps[0]]; okUser {
+			if storedPwd == decComps[1] {
+				return decComps[0], nil
+			} else {
+				return "", fmt.Errorf("bad pwd")
+			}
+		}
 
 		return "", fmt.Errorf("bad user")
 	}
@@ -105,15 +105,15 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	dir, file := filepath.Split(req.URL.Path)
 
 	if dir == "/sub/" {
-        authedUser, err := checkAuth(req)
+		authedUser, err := checkAuth(req)
 
-        if err != nil {
-            fmt.Printf("auth err: %v\n", err)
-            w.WriteHeader(http.StatusBadRequest)
-            return
-        }
+		if err != nil {
+			fmt.Printf("auth err: %v\n", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 
-        fmt.Printf("have authed user '%s'\n", authedUser)
+		fmt.Printf("have authed user '%s'\n", authedUser)
 		newSubID := uuid.New()
 
 		sh.Lock.Lock()
@@ -129,13 +129,13 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		fmt.Printf("Sub req! %s\n", file)
 		fmt.Println(sh.Pending[newSubID])
 
-        w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, newSubID.String())
 
-        return
+		return
 	}
 
-    w.WriteHeader(http.StatusBadRequest)
+	w.WriteHeader(http.StatusBadRequest)
 }
 
 func readUntilClose(c *websocket.Conn) {
@@ -244,9 +244,9 @@ func main() {
 		log.Panic("listen spec")
 	}
 
-    if redisPort == nil || redisHost == nil || *redisPort < 0 || *redisPort > 65535 {
-        log.Panic("redis spec")
-    }
+	if redisPort == nil || redisHost == nil || *redisPort < 0 || *redisPort > 65535 {
+		log.Panic("redis spec")
+	}
 
 	redisAuth := os.Getenv("REDIS_LOCAL_PWD")
 
@@ -254,7 +254,7 @@ func main() {
 		log.Panic("Need auth")
 	}
 
-    redisOptions.Addr = fmt.Sprintf("%s:%d", *redisHost, *redisPort)
+	redisOptions.Addr = fmt.Sprintf("%s:%d", *redisHost, *redisPort)
 	redisOptions.Password = redisAuth
 	rc := redis.NewClient(&redisOptions)
 
@@ -264,16 +264,16 @@ func main() {
 		log.Panic("Ping")
 	}
 
-    fmt.Printf("connected to redis://%s\n", redisOptions.Addr)
+	fmt.Printf("connected to redis://%s\n", redisOptions.Addr)
 	redisDefaultClient = rc
 
-    err = parseJSON(defaultUsersFile, &usersMap)
+	err = parseJSON(defaultUsersFile, &usersMap)
 
-    if err != nil {
-        log.Panic(err.Error())
-    }
+	if err != nil {
+		log.Panic(err.Error())
+	}
 
-    fmt.Printf("found %d valid users\n", len(usersMap))
+	fmt.Printf("found %d valid users\n", len(usersMap))
 
 	gSubscribeHandler = new(subscribeHandler)
 	http.Handle("/sub/", gSubscribeHandler)
