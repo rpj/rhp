@@ -18,6 +18,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const defaultRedisHost = "localhost"
+const defaultRedisPort = 6379
 const defaultListenHost = "localhost"
 const defaultListenPort = 56545
 const defaultUsersFile = "./users.json"
@@ -25,7 +27,6 @@ const defaultUsersFile = "./users.json"
 var usersMap map[string]string = nil
 var redisDefaultClient *redis.Client = nil
 var redisOptions = redis.Options{
-	Addr: "localhost:6379",
 	DB:   0,
 }
 
@@ -126,7 +127,7 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		sh.Lock.Unlock()
 
 		fmt.Printf("Sub req! %s\n", file)
-		fmt.Println(sh.Pending)
+		fmt.Println(sh.Pending[newSubID])
 
         w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, newSubID.String())
@@ -234,6 +235,8 @@ func parseJSON(path string, intoObj interface{}) error {
 func main() {
 	listenPort := flag.Uint("p", defaultListenPort, "listen port")
 	listenHost := flag.String("H", defaultListenHost, "listen host")
+	redisPort := flag.Uint("P", defaultRedisPort, "redis port")
+	redisHost := flag.String("r", defaultRedisHost, "redis host")
 
 	flag.Parse()
 
@@ -241,12 +244,17 @@ func main() {
 		log.Panic("listen spec")
 	}
 
+    if redisPort == nil || redisHost == nil || *redisPort < 0 || *redisPort > 65535 {
+        log.Panic("redis spec")
+    }
+
 	redisAuth := os.Getenv("REDIS_LOCAL_PWD")
 
 	if len(redisAuth) == 0 {
 		log.Panic("Need auth")
 	}
 
+    redisOptions.Addr = fmt.Sprintf("%s:%d", *redisHost, *redisPort)
 	redisOptions.Password = redisAuth
 	rc := redis.NewClient(&redisOptions)
 
@@ -256,14 +264,16 @@ func main() {
 		log.Panic("Ping")
 	}
 
+    fmt.Printf("connected to redis://%s\n", redisOptions.Addr)
+	redisDefaultClient = rc
+
     err = parseJSON(defaultUsersFile, &usersMap)
 
     if err != nil {
         log.Panic(err.Error())
     }
 
-	fmt.Println(rc)
-	redisDefaultClient = rc
+    fmt.Printf("found %d valid users\n", len(usersMap))
 
 	gSubscribeHandler = new(subscribeHandler)
 	http.Handle("/sub/", gSubscribeHandler)
