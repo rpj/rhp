@@ -47,11 +47,6 @@ type subscribeHandler struct {
 
 var gSubscribeHandler *subscribeHandler = nil
 
-func allowLocalhostOnly(r *http.Request) bool {
-	addrSplit := strings.Split(r.RemoteAddr, ":")
-	return addrSplit[0] == "127.0.0.1" || addrSplit[0] == "localhost"
-}
-
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,

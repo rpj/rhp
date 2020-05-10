@@ -32,7 +32,7 @@ func RhpPlugin(payload interface{}) (interface{}, error) {
 	}
 
 	if ds, ok := parsed["__ds"]; ok {
-		newDs := map[string]interface{}{
+		parsed["__ds"] = map[string]interface{}{
 			"host":    hostname,
 			"prev":    ds,
 			"rate":    1,
@@ -40,7 +40,6 @@ func RhpPlugin(payload interface{}) (interface{}, error) {
 			"ts":      rxTime,
 		}
 
-		parsed["__ds"] = newDs
 		newPayload, err := json.Marshal(parsed)
 
 		if err != nil {
