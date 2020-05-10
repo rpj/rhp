@@ -11,6 +11,8 @@ import (
 var hostname string
 
 func RhpPlugin(payload interface{}) (interface{}, error) {
+	rxTime := float64(time.Now().UnixNano()) / 1e9
+
 	if len(hostname) == 0 {
 		hn, err := os.Hostname()
 
@@ -31,10 +33,11 @@ func RhpPlugin(payload interface{}) (interface{}, error) {
 
 	if ds, ok := parsed["__ds"]; ok {
 		newDs := map[string]interface{}{
-			"host": hostname,
-			"prev": ds,
-			"rate": 1,
-			"ts":   float64(time.Now().UnixNano()) / 1e9,
+			"host":    hostname,
+			"prev":    ds,
+			"rate":    1,
+			"tsDelta": rxTime - ds.(map[string]interface{})["ts"].(float64),
+			"ts":      rxTime,
 		}
 
 		parsed["__ds"] = newDs
