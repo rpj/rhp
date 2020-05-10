@@ -97,10 +97,20 @@ func checkAuth(req *http.Request) (string, error) {
 		return "", fmt.Errorf("bad user")
 	}
 
+	fmt.Println(req.Header)
+	fmt.Println(req.Method)
 	return "", fmt.Errorf("bad auth")
 }
 
 func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if req.Method == "OPTIONS" {
+		w.Header().Set("Access-Control-Allow-Headers", "authorization")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	dir, file := filepath.Split(req.URL.Path)
 
 	if dir == "/sub/" {
