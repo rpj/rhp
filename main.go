@@ -143,14 +143,16 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 func readUntilClose(c *websocket.Conn) {
 	for {
 		if _, _, err := c.NextReader(); err != nil {
-			fmt.Printf("ws client %v disconnected\n", c.RemoteAddr())
+			remoteAddr := c.RemoteAddr()
+			fmt.Printf("ws client %v disconnected\n", remoteAddr)
 
 			c.Close()
 
 			wsClientsLock.Lock()
 			defer wsClientsLock.Unlock()
 
-			delete(wsClients, c.RemoteAddr())
+			wsClients[remoteAddr].Sub.Close()
+			delete(wsClients, remoteAddr)
 
 			break
 		}
