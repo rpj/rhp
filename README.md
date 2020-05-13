@@ -14,3 +14,5 @@ wscat -c ws://HOST:PORT/ws/sub?`curl -H "Authorization: Basic B64_CRED" http://H
 ```
 
 where `HOST`, `PORT`, `B64_CRED` & `CHANNEL` should be replaced with appropriate values.
+
+An example client can be found [here](https://github.com/rpj/rhp-client-example), a browser-based realtime display of [RPJiOS](https://github.com/rpj/rpi) device sensor data.
