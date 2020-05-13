@@ -77,7 +77,7 @@ func checkAuth(req *http.Request) (string, error) {
 		decAuthBytes, err := base64.StdEncoding.DecodeString(authComps[1])
 
 		if err != nil {
-      fmt.Println(authComps)
+			fmt.Println(authComps)
 			return "", err
 		}
 
@@ -124,7 +124,7 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		}
 
 		newSubID := uuid.New()
-    newSub := subscriber{file, req.RemoteAddr, authedUser}
+		newSub := subscriber{file, req.RemoteAddr, authedUser}
 
 		sh.Lock.Lock()
 
@@ -139,7 +139,7 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, newSubID.String())
 
-    fmt.Printf("new sub %v\n", newSub)
+		fmt.Printf("new sub %v\n", newSub)
 
 		return
 	}
@@ -178,11 +178,11 @@ func forwardAllOnto(wsc wsClient) {
 			}
 		}
 
-    go func() {
-      wsc.Lock.Lock()
-      defer wsc.Lock.Unlock()
-      wsc.Conn.WriteJSON(payload)
-    }()
+		go func() {
+			wsc.Lock.Lock()
+			defer wsc.Lock.Unlock()
+			wsc.Conn.WriteJSON(payload)
+		}()
 	}
 }
 
