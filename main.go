@@ -77,6 +77,7 @@ func checkAuth(req *http.Request) (string, error) {
 		decAuthBytes, err := base64.StdEncoding.DecodeString(authComps[1])
 
 		if err != nil {
+      fmt.Println(authComps)
 			return "", err
 		}
 
@@ -123,6 +124,7 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		}
 
 		newSubID := uuid.New()
+    newSub := subscriber{file, req.RemoteAddr, authedUser}
 
 		sh.Lock.Lock()
 
@@ -130,14 +132,14 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 			sh.Pending = map[uuid.UUID]subscriber{}
 		}
 
-		sh.Pending[newSubID] = subscriber{file, req.RemoteAddr, authedUser}
+		sh.Pending[newSubID] = newSub
 
 		sh.Lock.Unlock()
 
-		fmt.Printf("new sub: %v\n", sh.Pending[newSubID])
-
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, newSubID.String())
+
+    fmt.Printf("new sub %v\n", newSub)
 
 		return
 	}
@@ -164,8 +166,8 @@ func readUntilClose(c *websocket.Conn) {
 	}
 }
 
-func forwardAllOnto(subChan <-chan *redis.Message, c *websocket.Conn) {
-	for fwd := range subChan {
+func forwardAllOnto(wsc wsClient) {
+	for fwd := range wsc.Sub.Channel() {
 		payload := interface{}(fwd.Payload)
 		var err error
 
@@ -176,7 +178,11 @@ func forwardAllOnto(subChan <-chan *redis.Message, c *websocket.Conn) {
 			}
 		}
 
-		c.WriteJSON(payload)
+    go func() {
+      wsc.Lock.Lock()
+      defer wsc.Lock.Unlock()
+      wsc.Conn.WriteJSON(payload)
+    }()
 	}
 }
 
@@ -197,7 +203,7 @@ func registerNewClient(wsConn *websocket.Conn, channel string) {
 	fmt.Printf("ws client %v connected\n", clientAddr)
 
 	go readUntilClose(wsConn)
-	go forwardAllOnto(wsClients[clientAddr].Sub.Channel(), wsConn)
+	go forwardAllOnto(wsClients[clientAddr])
 }
 
 func websocketHandler(w http.ResponseWriter, req *http.Request) {
