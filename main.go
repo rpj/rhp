@@ -287,11 +287,12 @@ func loadPlugins(fromPath string) {
 }
 
 func main() {
-	listenPort := flag.Uint("p", defaultListenPort, "listen port")
-	listenHost := flag.String("H", defaultListenHost, "listen host")
-	redisPort := flag.Uint("P", defaultRedisPort, "redis port")
-	redisHost := flag.String("r", defaultRedisHost, "redis host")
-	pluginsPath := flag.String("a", defaultPluginsPath, "plugins path")
+	listenPort := flag.Uint("port", defaultListenPort, "http listen port")
+	listenHost := flag.String("listen", defaultListenHost, "http listen host")
+	redisPort := flag.Uint("redis-port", defaultRedisPort, "redis server port")
+	redisHost := flag.String("redis-host", defaultRedisHost, "redis server host")
+	pluginsPath := flag.String("plugins", defaultPluginsPath, "plugins path")
+	usersFile := flag.String("users", defaultUsersFile, "users JSON file")
 
 	flag.Parse()
 
@@ -324,7 +325,7 @@ func main() {
 	fmt.Printf("connected to redis://%s\n", redisOptions.Addr)
 	redisDefaultClient = rc
 
-	err = parseJSON(defaultUsersFile, &usersMap)
+	err = parseJSON(*usersFile, &usersMap)
 
 	if err != nil {
 		log.Panic(err.Error())
