@@ -13,6 +13,7 @@ import (
 	"plugin"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-redis/redis/v7"
 	"github.com/google/uuid"
@@ -28,7 +29,9 @@ const defaultPluginsPath = "./plugins"
 const pluginEntrySymbolName = "RhpPlugin"
 
 var loadedPlugins = map[string]func(interface{}) (interface{}, error){}
+var g_usersFile string
 var usersMap map[string]string = nil
+var usersMapLock sync.Mutex = sync.Mutex{}
 var redisDefaultClient *redis.Client = nil
 var redisOptions = redis.Options{
 	DB: 0,
@@ -87,6 +90,8 @@ func checkAuth(req *http.Request) (string, error) {
 			return "", fmt.Errorf("bad decComps")
 		}
 
+		usersMapLock.Lock()
+		defer usersMapLock.Unlock()
 		if storedPwd, okUser := usersMap[decComps[0]]; okUser {
 			if storedPwd == decComps[1] {
 				return decComps[0], nil
@@ -206,6 +211,20 @@ func registerNewClient(wsConn *websocket.Conn, channel string) {
 	go forwardAllOnto(wsClients[clientAddr])
 }
 
+func refreshHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "OPTIONS" {
+		return
+	}
+
+	if rhpAuthHeader, ok := req.Header["X-Rhp-Auth"]; ok {
+		expectAuth := fmt.Sprintf("%d", time.Now().Unix()/10)
+		if expectAuth == rhpAuthHeader[0] {
+			log.Printf("valid refresh request from %v, running\n", req.RemoteAddr)
+			loadUsers()
+		}
+	}
+}
+
 func websocketHandler(w http.ResponseWriter, req *http.Request) {
 	wsConn, err := wsUpgrader.Upgrade(w, req, nil)
 
@@ -286,6 +305,19 @@ func loadPlugins(fromPath string) {
 	log.Printf("loaded %d plugins\n", len(loadedPlugins))
 }
 
+func loadUsers() {
+	usersMapLock.Lock()
+	defer usersMapLock.Unlock()
+
+	err := parseJSON(g_usersFile, &usersMap)
+
+	if err != nil {
+		log.Panic(err.Error())
+	}
+
+	log.Printf("found %d valid users\n", len(usersMap))
+}
+
 func main() {
 	listenPort := flag.Uint("port", defaultListenPort, "http listen port")
 	listenHost := flag.String("listen", defaultListenHost, "http listen host")
@@ -325,17 +357,13 @@ func main() {
 	log.Printf("connected to redis://%s\n", redisOptions.Addr)
 	redisDefaultClient = rc
 
-	err = parseJSON(*usersFile, &usersMap)
-
-	if err != nil {
-		log.Panic(err.Error())
-	}
-
-	log.Printf("found %d valid users\n", len(usersMap))
+	g_usersFile = *usersFile
+	loadUsers()
 
 	gSubscribeHandler = new(subscribeHandler)
 	http.Handle("/sub/", gSubscribeHandler)
 	http.HandleFunc("/ws/sub", websocketHandler)
+	http.HandleFunc("/refresh", refreshHandler)
 
 	listenSpec := fmt.Sprintf("%s:%d", *listenHost, *listenPort)
 	log.Printf("listening on %s\n", listenSpec)
