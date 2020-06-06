@@ -77,7 +77,7 @@ func checkAuth(req *http.Request) (string, error) {
 		decAuthBytes, err := base64.StdEncoding.DecodeString(authComps[1])
 
 		if err != nil {
-			fmt.Println(authComps)
+			log.Println(authComps)
 			return "", err
 		}
 
@@ -98,8 +98,8 @@ func checkAuth(req *http.Request) (string, error) {
 		return "", fmt.Errorf("bad user")
 	}
 
-	fmt.Println(req.Header)
-	fmt.Println(req.Method)
+	log.Println(req.Header)
+	log.Println(req.Method)
 	return "", fmt.Errorf("bad auth")
 }
 
@@ -118,7 +118,7 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		authedUser, err := checkAuth(req)
 
 		if err != nil {
-			fmt.Printf("auth err: %v\n", err)
+			log.Printf("auth err: %v\n", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -139,7 +139,7 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, newSubID.String())
 
-		fmt.Printf("new sub %v\n", newSub)
+		log.Printf("new sub %v\n", newSub)
 
 		return
 	}
@@ -151,7 +151,7 @@ func readUntilClose(c *websocket.Conn) {
 	for {
 		if _, _, err := c.NextReader(); err != nil {
 			remoteAddr := c.RemoteAddr()
-			fmt.Printf("ws client %v disconnected\n", remoteAddr)
+			log.Printf("ws client %v disconnected\n", remoteAddr)
 
 			c.Close()
 
@@ -193,14 +193,14 @@ func registerNewClient(wsConn *websocket.Conn, channel string) {
 	defer wsClientsLock.Unlock()
 
 	if curClient, ok := wsClients[clientAddr]; ok {
-		fmt.Printf("already have conn for %v! closing it\n", clientAddr)
+		log.Printf("already have conn for %v! closing it\n", clientAddr)
 		curClient.Lock.Lock()
 		curClient.Conn.Close()
 		curClient.Lock.Unlock()
 	}
 
 	wsClients[clientAddr] = wsClient{wsConn, new(sync.Mutex), redisDefaultClient.Subscribe(channel)}
-	fmt.Printf("ws client %v connected\n", clientAddr)
+	log.Printf("ws client %v connected\n", clientAddr)
 
 	go readUntilClose(wsConn)
 	go forwardAllOnto(wsClients[clientAddr])
@@ -210,14 +210,14 @@ func websocketHandler(w http.ResponseWriter, req *http.Request) {
 	wsConn, err := wsUpgrader.Upgrade(w, req, nil)
 
 	if err != nil {
-		fmt.Printf("websocketHandler upgrade failed: %v\n", err)
+		log.Printf("websocketHandler upgrade failed: %v\n", err)
 		return
 	}
 
 	okReqUUID, err := uuid.Parse(req.URL.RawQuery)
 
 	if err != nil {
-		fmt.Printf("bad ws query '%s'\n", req.URL.RawQuery)
+		log.Printf("bad ws query '%s'\n", req.URL.RawQuery)
 		return
 	}
 
@@ -229,10 +229,10 @@ func websocketHandler(w http.ResponseWriter, req *http.Request) {
 			go registerNewClient(wsConn, pendingConn.Channel)
 			delete(gSubscribeHandler.Pending, okReqUUID)
 		} else {
-			fmt.Printf("bad addr match %s vs %s\n", wsConn.RemoteAddr(), pendingConn.Addr)
+			log.Printf("bad addr match %s vs %s\n", wsConn.RemoteAddr(), pendingConn.Addr)
 		}
 	} else {
-		fmt.Printf("bad pending connection '%v'\n", okReqUUID)
+		log.Printf("bad pending connection '%v'\n", okReqUUID)
 	}
 }
 
@@ -272,7 +272,7 @@ func loadPlugins(fromPath string) {
 				return err
 			}
 
-			fmt.Printf("loaded %s\n", path)
+			log.Printf("loaded %s\n", path)
 			loadedPlugins[path] = newPlugin.(func(interface{}) (interface{}, error))
 		}
 
@@ -283,7 +283,7 @@ func loadPlugins(fromPath string) {
 		log.Panic(err.Error())
 	}
 
-	fmt.Printf("loaded %d plugins\n", len(loadedPlugins))
+	log.Printf("loaded %d plugins\n", len(loadedPlugins))
 }
 
 func main() {
@@ -322,7 +322,7 @@ func main() {
 		log.Panic("Ping")
 	}
 
-	fmt.Printf("connected to redis://%s\n", redisOptions.Addr)
+	log.Printf("connected to redis://%s\n", redisOptions.Addr)
 	redisDefaultClient = rc
 
 	err = parseJSON(*usersFile, &usersMap)
@@ -331,14 +331,14 @@ func main() {
 		log.Panic(err.Error())
 	}
 
-	fmt.Printf("found %d valid users\n", len(usersMap))
+	log.Printf("found %d valid users\n", len(usersMap))
 
 	gSubscribeHandler = new(subscribeHandler)
 	http.Handle("/sub/", gSubscribeHandler)
 	http.HandleFunc("/ws/sub", websocketHandler)
 
 	listenSpec := fmt.Sprintf("%s:%d", *listenHost, *listenPort)
-	fmt.Printf("listening on %s\n", listenSpec)
+	log.Printf("listening on %s\n", listenSpec)
 
 	http.ListenAndServe(listenSpec, nil)
 }
