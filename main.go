@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"plugin"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -117,16 +118,17 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	authedUser, err := checkAuth(req)
+
+	if err != nil {
+		log.Printf("auth err: %v\n", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
 	dir, file := filepath.Split(req.URL.Path)
 
 	if dir == "/sub/" {
-		authedUser, err := checkAuth(req)
-
-		if err != nil {
-			log.Printf("auth err: %v\n", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
 
 		newSubID := uuid.New()
 		newSub := subscriber{file, req.RemoteAddr, authedUser}
@@ -149,6 +151,121 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	if dir == "/list/" && file != "" {
+		start := int64(0)
+		end := int64(10)
+		query := req.URL.Query()
+		var err error = nil
+		log.Printf("LIST -- %v -- %v\n", file, query)
+
+		if startSpec, ok := query["start"]; ok {
+			start, err = strconv.ParseInt(startSpec[0], 10, 64)
+		}
+
+		if err == nil && start >= 0 {
+			if endSpec, ok := query["end"]; ok {
+				end, err = strconv.ParseInt(endSpec[0], 10, 64)
+			}
+
+			if timeSpec, ok := query["back"]; ok {
+				back, err := strconv.ParseInt(timeSpec[0], 10, 64)
+
+				if err == nil {
+					start = 0
+					end = 100
+					_ux := time.Now()
+					limUnix := _ux.Unix() - (back * 60)
+					log.Printf("NOW %v (%d)\n", _ux.String(), _ux.Unix())
+					log.Printf("LIM %v (%d)\n", time.Unix(limUnix, 0), limUnix)
+					retList := make([][2]float64, 0, end-start)
+					stillGoing := true
+
+					for stillGoing {
+						lRes := redisDefaultClient.LRange(file, start, end)
+						list, err := lRes.Result()
+
+						if err != nil {
+							stillGoing = false
+							log.Printf("broke! %v", err)
+							break
+						}
+
+						for _, toDec := range list {
+							var newVal [2]float64
+							err = json.Unmarshal([]byte(toDec), &newVal)
+
+							if err != nil {
+								log.Printf("bad rpjiosListVal! %v\n", err)
+								stillGoing = false
+								break
+							}
+
+							if int64(newVal[0]) >= limUnix {
+								retList = append(retList, newVal)
+							} else {
+								stillGoing = false
+							}
+						}
+
+						if stillGoing {
+							start = end
+							end = end + end
+						}
+					}
+
+					log.Printf("1 RETLIST LEN: %v (%v)\n", len(retList), cap(retList))
+
+					if cadSpec, ok := query["cad"]; ok {
+						cad, err := strconv.ParseInt(cadSpec[0], 10, 64)
+
+						if err == nil && cad < (back*60) {
+							newList := make([][2]float64, 0, int64(cap(retList))/cad)
+							lastMark := int64(-1)
+
+							// TODO: detect natural cadence and then jump over N elements
+							// in retList as optimization
+							for _, chkVal := range retList {
+								curMark := int64(chkVal[0])
+
+								if lastMark == int64(-1) || lastMark-curMark > cad {
+									newList = append(newList, chkVal)
+									lastMark = curMark
+								}
+							}
+
+							retList = newList
+							log.Printf("2 RETLIST LEN: %v (%v)\n", len(retList), cap(retList))
+						}
+					}
+
+					rlStr, err := json.Marshal(retList)
+
+					if err == nil {
+						w.WriteHeader(http.StatusOK)
+						fmt.Fprintf(w, string(rlStr))
+						return
+					}
+				}
+			}
+
+			if err == nil && end > start {
+				lRes := redisDefaultClient.LRange(file, start, end)
+
+				listRes, err := lRes.Result()
+
+				if err == nil {
+					listStr, err := json.Marshal(listRes)
+					if err == nil {
+						w.WriteHeader(http.StatusOK)
+						fmt.Fprintf(w, string(listStr))
+						return
+					}
+				}
+			}
+		}
+	}
+
+	log.Printf("BAD REQ: %v\n", req)
 	w.WriteHeader(http.StatusBadRequest)
 }
 
@@ -362,6 +479,7 @@ func main() {
 
 	gSubscribeHandler = new(subscribeHandler)
 	http.Handle("/sub/", gSubscribeHandler)
+	http.Handle("/list/", gSubscribeHandler)
 	http.HandleFunc("/ws/sub", websocketHandler)
 	http.HandleFunc("/refresh", refreshHandler)
 
