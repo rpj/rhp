@@ -208,6 +208,7 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 }
 
 func readUntilClose(c *websocket.Conn) {
+	log.Printf("readUntilClose for %v STARTING\n", c.RemoteAddr())
 	for {
 		if _, _, err := c.NextReader(); err != nil {
 			remoteAddr := c.RemoteAddr()
@@ -224,9 +225,11 @@ func readUntilClose(c *websocket.Conn) {
 			break
 		}
 	}
+	log.Printf("readUntilClose for %v EXITING\n", c.RemoteAddr())
 }
 
 func forwardAllOnto(wsc wsClient) {
+	log.Printf("forAllOnto for %v STARTING\n", wsc.Conn.RemoteAddr())
 	for fwd := range wsc.Sub.Channel() {
 		payload := interface{}(fwd.Payload)
 		var err error
@@ -246,6 +249,7 @@ func forwardAllOnto(wsc wsClient) {
 			wsc.Conn.WriteJSON(payload)
 		}()
 	}
+	log.Printf("forAllOnto for %v EXITING\n", wsc.Conn.RemoteAddr())
 }
 
 func registerNewClient(wsConn *websocket.Conn, channel string) {

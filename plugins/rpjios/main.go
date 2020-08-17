@@ -13,7 +13,7 @@ import (
 var hostname string
 
 func Version() string {
-	return "0.0.1"
+	return "0.0.2"
 }
 
 func HandleMsg(payload interface{}) (interface{}, error) {
@@ -82,6 +82,11 @@ func HandleListReq(dir string, file string, query url.Values, listLookup RhpHand
 				if err != nil {
 					stillGoing = false
 					log.Printf("broke! %v", err)
+					break
+				}
+
+				if len(list) == 0 {
+					stillGoing = false
 					break
 				}
 
