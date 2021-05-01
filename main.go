@@ -350,7 +350,6 @@ func parseJSON(path string, intoObj interface{}) error {
 	file, err := os.Open(path)
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "parseJSON unable to open '%s': %v\n", path, err)
 		return err
 	}
 
@@ -360,7 +359,6 @@ func parseJSON(path string, intoObj interface{}) error {
 	err = dec.Decode(intoObj)
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "parseJSON failed to decode: %v\n", err)
 		return err
 	}
 
@@ -458,7 +456,7 @@ func loadUsers() {
 	log.Printf("found %d valid users\n", len(usersMap))
 }
 
-func loadPublish(publishFile string, publishPrefix string, redisOptions redis.Options) (truePublishPrefix string, err error) {
+func loadPublish(publishFile string, publishPrefix string, publishClient *redis.Client) (truePublishPrefix string, err error) {
 	publishLock.Lock()
 	defer publishLock.Unlock()
 
@@ -488,7 +486,6 @@ func loadPublish(publishFile string, publishPrefix string, redisOptions redis.Op
 	}
 
 	publishMap = flippedChanMap
-	publishClient := redis.NewClient(&redisOptions)
 
 	if publishClient == nil {
 		err = fmt.Errorf("bad publish client")
@@ -497,7 +494,6 @@ func loadPublish(publishFile string, publishPrefix string, redisOptions redis.Op
 
 	go func() {
 		for publishMsg := range publishChan {
-
 			if channel, ok := publishMap[publishMsg.ChannelId]; ok {
 				intRes := publishClient.Publish(channel, publishMsg.Message)
 
@@ -506,7 +502,7 @@ func loadPublish(publishFile string, publishPrefix string, redisOptions redis.Op
 					continue
 				}
 
-				log.Printf("[%s] published to '%s': %v", publishMsg.User, channel, publishMsg.Message)
+				log.Printf("[%s] published to '%s', res=%d: %v", publishMsg.User, channel, intRes.Val(), publishMsg.Message)
 			} else {
 				log.Printf("[%s] bad channel ID %v", publishMsg.User, publishMsg.ChannelId)
 			}
@@ -568,19 +564,17 @@ func main() {
 
 	gSubscribeHandler = new(subscribeHandler)
 
-	truePublishPrefix, err := loadPublish(*publishFile, *publishPrefix, redisOptions)
+	truePublishPrefix, err := loadPublish(*publishFile, *publishPrefix, redisDefaultClient)
 
 	if err == nil {
-		log.Printf("publish loaded, prefix: %s", truePublishPrefix)
+		log.Printf("publish mode loaded, no other functionality will be! prefix: %s", truePublishPrefix)
 		http.Handle("/pub/", gSubscribeHandler)
 	} else {
-		log.Printf("publish failed to load: %v", err)
+		http.Handle("/sub/", gSubscribeHandler)
+		http.Handle("/list/", gSubscribeHandler)
+		http.HandleFunc("/ws/sub", websocketHandler)
+		http.HandleFunc("/refresh", refreshHandler)
 	}
-
-	http.Handle("/sub/", gSubscribeHandler)
-	http.Handle("/list/", gSubscribeHandler)
-	http.HandleFunc("/ws/sub", websocketHandler)
-	http.HandleFunc("/refresh", refreshHandler)
 
 	listenSpec := fmt.Sprintf("%s:%d", *listenHost, *listenPort)
 	log.Printf("listening on %s\n", listenSpec)
