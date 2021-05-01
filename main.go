@@ -72,6 +72,7 @@ var wsClientsLock = sync.Mutex{}
 type publishSpec struct {
 	ChannelId string
 	Message   string
+	User      string
 }
 
 var publishMap map[string]string = nil
@@ -166,7 +167,7 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 			return
 		}
 
-		publishChan <- publishSpec{file, string(bodyBytes)}
+		publishChan <- publishSpec{file, string(bodyBytes), authedUser}
 		w.WriteHeader(http.StatusAccepted)
 		return
 	} else if dir == "/list/" && file != "" {
@@ -193,7 +194,6 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		if respStr == "" {
 			start := int64(0)
 			end := int64(10)
-			query := req.URL.Query()
 			var err error = nil
 			log.Printf("LIST -- %v -- %v\n", file, query)
 
@@ -502,13 +502,13 @@ func loadPublish(publishFile string, publishPrefix string, redisOptions redis.Op
 				intRes := publishClient.Publish(channel, publishMsg.Message)
 
 				if intRes == nil || intRes.Err() != nil {
-					log.Printf("Error publishing to %s: %v", channel, intRes.Err())
+					log.Printf("[%s] error publishing to %s: %v", publishMsg.User, channel, intRes.Err())
 					continue
 				}
 
-				log.Printf("Published to '%s': %v", channel, publishMsg.Message)
+				log.Printf("[%s] published to '%s': %v", publishMsg.User, channel, publishMsg.Message)
 			} else {
-				log.Printf("bad channel ID %v", publishMsg.ChannelId)
+				log.Printf("[%s] bad channel ID %v", publishMsg.User, publishMsg.ChannelId)
 			}
 		}
 	}()
