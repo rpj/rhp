@@ -1,3 +1,4 @@
 *.so
 users.json
+publish.json
 rhp
