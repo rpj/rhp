@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -27,6 +28,8 @@ const defaultRedisPort = 6379
 const defaultListenHost = "localhost"
 const defaultListenPort = 56545
 const defaultUsersFile = "./users.json"
+const defaultPublishChannelPrefix = "rhp"
+const defaultPublishChannelsFile = "./publish.json"
 const defaultPluginsPath = "./build/plugins"
 
 var loadedPlugins rhpPluginsT
@@ -65,6 +68,15 @@ type wsClient struct {
 
 var wsClients = map[net.Addr]wsClient{}
 var wsClientsLock = sync.Mutex{}
+
+type publishSpec struct {
+	ChannelId string
+	Message   string
+}
+
+var publishMap map[string]string = nil
+var publishChan = make(chan publishSpec)
+var publishLock sync.Mutex = sync.Mutex{}
 
 func checkAuth(req *http.Request) (string, error) {
 	if authHeader, ok := req.Header["Authorization"]; ok {
@@ -145,6 +157,18 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 		log.Printf("new sub %v\n", newSub)
 
 		respStr = newSubID.String()
+	} else if dir == "/pub/" && file != "" && req.Method == "POST" {
+		bodyBytes, err := io.ReadAll(req.Body)
+
+		if err != nil {
+			log.Printf("Failed to read pub req body: %v", req)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		publishChan <- publishSpec{file, string(bodyBytes)}
+		w.WriteHeader(http.StatusAccepted)
+		return
 	} else if dir == "/list/" && file != "" {
 		query := req.URL.Query()
 		listLookup := func(start int64, end int64) ([]string, error) {
@@ -199,8 +223,13 @@ func (sh *subscribeHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	}
 
 	if respStr != "" {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, respStr)
+		_, err := w.Write([]byte(respStr))
+
+		if err != nil {
+			log.Printf("failed to write response: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 	} else {
 		log.Printf("BAD REQ: %v\n", req)
 		w.WriteHeader(http.StatusBadRequest)
@@ -429,6 +458,64 @@ func loadUsers() {
 	log.Printf("found %d valid users\n", len(usersMap))
 }
 
+func loadPublish(publishFile string, publishPrefix string, redisOptions redis.Options) (truePublishPrefix string, err error) {
+	publishLock.Lock()
+	defer publishLock.Unlock()
+
+	err = parseJSON(publishFile, &publishMap)
+
+	if err != nil {
+		return
+	}
+
+	hostname, err := os.Hostname()
+
+	if err != nil {
+		return
+	}
+
+	truePublishPrefix = fmt.Sprintf("%s:%s", publishPrefix, hostname)
+
+	var flippedChanMap map[string]string = map[string]string{}
+
+	for chanName, mappedId := range publishMap {
+		if mappedId == "" {
+			mappedId = uuid.New().String()
+			log.Printf("Generated ephemeral mapped ID %s for channel %s", mappedId, chanName)
+		}
+
+		flippedChanMap[mappedId] = fmt.Sprintf("%s::%s", truePublishPrefix, chanName)
+	}
+
+	publishMap = flippedChanMap
+	publishClient := redis.NewClient(&redisOptions)
+
+	if publishClient == nil {
+		err = fmt.Errorf("bad publish client")
+		return
+	}
+
+	go func() {
+		for publishMsg := range publishChan {
+
+			if channel, ok := publishMap[publishMsg.ChannelId]; ok {
+				intRes := publishClient.Publish(channel, publishMsg.Message)
+
+				if intRes == nil || intRes.Err() != nil {
+					log.Printf("Error publishing to %s: %v", channel, intRes.Err())
+					continue
+				}
+
+				log.Printf("Published to '%s': %v", channel, publishMsg.Message)
+			} else {
+				log.Printf("bad channel ID %v", publishMsg.ChannelId)
+			}
+		}
+	}()
+
+	return
+}
+
 func main() {
 	listenPort := flag.Uint("port", defaultListenPort, "http listen port")
 	listenHost := flag.String("listen", defaultListenHost, "http listen host")
@@ -436,6 +523,8 @@ func main() {
 	redisHost := flag.String("redis-host", defaultRedisHost, "redis server host")
 	pluginsPath := flag.String("plugins", defaultPluginsPath, "plugins path")
 	usersFile := flag.String("users", defaultUsersFile, "users JSON file")
+	publishFile := flag.String("publish", defaultPublishChannelsFile, "publish JSON file")
+	publishPrefix := flag.String("publishPrefix", defaultPublishChannelPrefix, "publis channel name prefix")
 
 	flag.Parse()
 
@@ -474,10 +563,20 @@ func main() {
 	loadedPlugins.Lock.Unlock()
 
 	if err != nil {
-		log.Fatalf("plugin load failed: %v", err)
+		log.Printf("plugin load failed: %v", err)
 	}
 
 	gSubscribeHandler = new(subscribeHandler)
+
+	truePublishPrefix, err := loadPublish(*publishFile, *publishPrefix, redisOptions)
+
+	if err == nil {
+		log.Printf("publish loaded, prefix: %s", truePublishPrefix)
+		http.Handle("/pub/", gSubscribeHandler)
+	} else {
+		log.Printf("publish failed to load: %v", err)
+	}
+
 	http.Handle("/sub/", gSubscribeHandler)
 	http.Handle("/list/", gSubscribeHandler)
 	http.HandleFunc("/ws/sub", websocketHandler)
